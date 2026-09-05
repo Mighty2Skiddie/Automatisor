@@ -3,13 +3,14 @@
 #     copy .env.example .env     # add GOOGLE_API_KEY
 #     docker compose up
 #
+#   Web   http://localhost:3000        (primary UI)
 #   API   http://localhost:8000/docs
-#   UI    http://localhost:8501
+#   UI    http://localhost:8501        (Streamlit fallback)
 #   MCP   http://localhost:8765/mcp
 #
-# Three services from one image. `web` (Next.js) is deliberately absent — the
-# Streamlit UI is the human interface this build ships, and the brief names
-# "Streamlit or equivalent".
+# Four services. The three Python roles share one image; `web` builds separately
+# because it is a Node app. Both UIs are shipped: Streamlit is the brief-named
+# fallback, Next.js is the primary interface built to docs/04-FRONTEND-SPEC.md.
 
 services:
   mcp:
@@ -70,6 +71,18 @@ services:
     depends_on:
       mcp:
         condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      args:
+        # The browser makes these calls, so the URL must be reachable from the host.
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    image: sector-analyst-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
 
 # No volume is mounted over app/data. The committed financials.db ships inside the
 # image, so a clean clone runs with nothing to scrape. Mounting a named volume there

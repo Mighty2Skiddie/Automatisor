@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens from docs/04-FRONTEND-SPEC.md §2.
+ *
+ * The subject is an analyst's desk instrument: a cool instrument-grey base where the
+ * neutrals do the work and colour is reserved for meaning — persona identity and data
+ * health. Deliberately not the cream/serif/terracotta look, and not near-black plus an
+ * acid accent.
+ */
+
+@theme {
+  --color-ink: #16191d;
+  --color-slate: #5c6670;
+  --color-field: #edf0f2;
+  --color-surface: #ffffff;
+  --color-rule: #d5dbdf;
+
+  /* Persona identity — one accent owns the session. */
+  --color-mf: #1f6f5c;
+  --color-equity: #a84b12;
+  --color-pe: #45369b;
+
+  /* Data health, used only in the evidence panel. */
+  --color-ok: #1f6f5c;
+  --color-partial: #b07a0b;
+  /*
+   * The spec gives #8A929A, which measures 3.15:1 on --surface — below the AA 4.5:1
+   * that the same spec lists as a non-negotiable quality floor. The em dash for a
+   * missing value is *content*, not decoration, so the floor wins and the value is
+   * darkened. It stays grey: absence is not an error and must never read as one.
+   */
+  --color-missing: #6e767e;
+
+  /*
+   * The var(--font-*) names are injected by next/font in app/layout.tsx, so the
+   * families are self-hosted and cause no layout shift. The fallbacks matter: if the
+   * font fails to load, figures must still land in a monospace face or the evidence
+   * table stops aligning.
+   */
+  --font-serif: var(--font-newsreader), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-public-sans), -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  /* 1.25 ratio, per the spec. */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+}
+
+/*
+ * One CSS variable swap re-themes the app. `data-persona` is set on <html> by
+ * PersonaProvider and every persona-aware element reads var(--accent) — so the accent
+ * lives in exactly one place rather than being threaded through props.
+ */
+:root {
+  --accent: var(--color-pe);
+}
+
+/*
+ * Scoped to any element carrying data-persona, not only <html>. The transcript keeps
+ * answers from every persona on screen at once, so each answer card re-declares the
+ * variable for its own subtree — otherwise a fund-analyst answer would wear whichever
+ * accent happens to be selected right now, which is exactly the misattribution the
+ * three-placement accent rule exists to prevent.
+ */
+[data-persona="mf_analyst"] {
+  --accent: var(--color-mf);
+}
+[data-persona="equity_analyst"] {
+  --accent: var(--color-equity);
+}
+[data-persona="pe_analyst"] {
+  --accent: var(--color-pe);
+}
+
+html,
+body {
+  background: var(--color-field);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible focus is a quality floor item, not a nicety. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/*
+ * One orchestrated motion moment: the accent transition on persona change. No
+ * per-card hover lifts, no scroll-triggered entrances.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .accent-transition {
+    transition:
+      border-color 240ms ease,
+      color 240ms ease,
+      background-color 240ms ease;
+  }
+  .cross-fade {
+    animation: fade-in 240ms ease both;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/*
+ * The answer is editorial prose, not chat. A serif at 18px with generous leading over
+ * a 66ch measure is what makes a multi-paragraph analyst note readable rather than
+ * skimmable.
+ */
+.answer-prose {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  line-height: 1.65;
+  max-width: 66ch;
+}
+.answer-prose p {
+  margin-bottom: 1rem;
+}
+.answer-prose strong {
+  font-weight: 600;
+}
+.answer-prose ul,
+.answer-prose ol {
+  margin: 0.5rem 0 1rem 1.25rem;
+  list-style: disc;
+}
+.answer-prose li {
+  margin-bottom: 0.35rem;
+}
+
+/* Figures must line up in a column to be scannable, hence tabular numerals. */
+.figure {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

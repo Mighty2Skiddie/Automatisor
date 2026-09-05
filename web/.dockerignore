@@ -1,0 +1,7 @@
+node_modules
+.next
+out
+npm_install.log
+build.log
+next_start.log
+.env*.local
