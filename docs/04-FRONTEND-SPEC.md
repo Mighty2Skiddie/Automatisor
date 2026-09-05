@@ -109,8 +109,9 @@ Below 1100px the evidence panel becomes a slide-over drawer with a persistent
 
 ### Principles
 
-1. The evidence panel is always populated before the answer finishes streaming —
-   the user watches retrieval happen. Retrieval-then-reasoning is the story.
+1. The evidence panel is populated *before the answer arrives* — the user watches
+   retrieval happen. Retrieval-then-reasoning is the story, and it is the ordering
+   the SSE stream actually guarantees (`progress` -> `evidence` -> `response`).
 2. Persona colour appears in exactly three places: the active rail item, the
    header persona name, and a 3px left border on the answer block. Nowhere else.
 3. NULLs render as an em dash in `--missing` grey with a tooltip "not in dataset".
@@ -179,7 +180,14 @@ three different framings") instead of asking the reviewer to take it on faith.
 
 ### Interaction rules
 
-- Answers stream token by token; the evidence panel populates first.
+- **The answer does not stream token by token, and the API does not pretend to.**
+  The final answer is a *structured* object (`AnalystDraft`), and a JSON schema cannot
+  be emitted incrementally as readable prose — a half-parsed object is not a partial
+  answer. `POST /v1/query/stream` therefore streams what is genuinely available in
+  order: `progress` events named after the graph node that just completed, then
+  `evidence` as soon as the MCP rows land, then the complete `response`, then a
+  terminal `done`. The evidence panel filling before the answer is the honest version
+  of this promise, and it is the one that actually demonstrates retrieval.
 - Persona/sector changes never clear history — each answer card keeps a small
   badge showing which persona produced it, so the transcript is a comparison.
 - Keyboard: `1/2/3` switch persona, `Cmd/Ctrl+K` focuses the question bar.
@@ -189,7 +197,7 @@ three different framings") instead of asking the reviewer to take it on faith.
 ### Quality floor (non-negotiable)
 
 Responsive to 375px · visible keyboard focus rings · `prefers-reduced-motion`
-respected · AA contrast on all text · `aria-live="polite"` on the streaming answer ·
+respected · AA contrast on all text · `aria-live="polite"` on the answer region ·
 no layout shift when the evidence panel fills.
 
 ---

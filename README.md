@@ -1,19 +1,92 @@
 # Sector Analyst Agent
 
-One configurable agent. Three financial analyst personas. Four sectors. A real
-database behind an **MCP protocol boundary**, reachable from a web UI and a REST API.
+**Three financial analysts. One set of facts. Three different answers — and every
+number is real.**
 
-The same `run_agent()` function serves both interfaces. The agent never touches the
-database — it is an MCP *client*, and a test fails the build if that stops being true.
+Ask this system a question like *"is technology a good place to put money right now?"*
+and it answers as one of three professionals: a **mutual fund analyst**, an **equity
+research analyst**, or a **private equity analyst**.
 
+They all read the *same* database. They still disagree — because they *want different
+things*.
+
+> A company with a **weak profit margin**:
+> - the **fund analyst** says *avoid it* — it's a broken business she'd be stuck holding.
+> - the **private equity analyst** says *buy it* — a weak margin is something he can fix
+>   after taking the company over, and that's where his profit comes from.
+>
+> Same company. Same number. **Opposite conclusions.** That is the whole point of this
+> project, and it's measured automatically rather than just claimed.
+
+The other half of the project is **honesty**. The agent is only allowed to talk about
+40 real companies whose financial data is stored in a database. Ask it about a company
+it doesn't have — SpaceX, say — and it tells you it has no data, instead of inventing a
+confident-sounding answer. Making an AI say *"I don't know"* is harder than making it
+sound clever, and it's the behaviour this system is built and tested for.
+
+---
+
+## How it works, in one picture
+
+```mermaid
+flowchart TB
+    Person["👤 A person<br/>asks a question"] --> UI["Streamlit web page"]
+    System["🖥️ Another program<br/>asks a question"] --> API["REST API"]
+
+    UI --> Agent
+    API --> Agent
+
+    Agent["🧠 <b>The agent</b><br/>one shared brain<br/>(run_agent)"]
+
+    Agent -->|"asks for facts"| MCP
+    MCP["🔌 <b>MCP server</b><br/>the only thing allowed<br/>to open the database"]
+    MCP --> DB[("🗄️ Database<br/>40 companies<br/>4 sectors")]
+
+    Agent -->|"writes the answer"| LLM["🤖 AI model<br/>Gemini, with Groq<br/>as a backup"]
+
+    style Agent fill:#e8eef7,stroke:#45369b,stroke-width:2px
+    style MCP fill:#eef7ee,stroke:#1f6f5c,stroke-width:2px
+    style DB fill:#f7f2e8,stroke:#a84b12,stroke-width:2px
 ```
-Streamlit UI ─┐                                   ┌─ guardrails: input / grounding / output
-              ├─► run_agent() ─► LangGraph ───────┤
-REST API ─────┘                      │            └─ Langfuse (optional)
-                                     │ MCP (streamable-HTTP)
-                                     ▼
-                            FastMCP server ─► SQLite
+
+**The important part is the wall in the middle.** The agent is *never* allowed to open
+the database itself. It has to ask the MCP server, which is a separate program running
+on its own. This is like a bank teller: customers don't walk into the vault, they ask
+the teller, and the teller is the only one with the key.
+
+Why bother? Because it forces every fact to come through one controlled door that can
+be inspected, limited, and logged. The project has an automated test that **fails the
+build** if any developer ever writes code that opens the database directly.
+
+## What happens when you ask a question
+
+```mermaid
+sequenceDiagram
+    participant You
+    participant Agent
+    participant MCP as MCP server
+    participant AI as AI model
+
+    You->>Agent: "Which companies are good buyout targets?"
+    Agent->>Agent: Safety check<br/>(is this a real question?)
+    Agent->>AI: Which facts do I need?
+    AI-->>Agent: "Get me the logistics companies"
+    Agent->>MCP: query_companies("logistics")
+    MCP-->>Agent: 10 companies, real numbers
+    Agent->>Agent: ⚠️ Did I actually look<br/>anything up? If not, STOP.
+    Agent->>AI: Write the analysis using ONLY these rows
+    AI-->>Agent: The answer
+    Agent->>Agent: Check every number<br/>against the data
+    Agent-->>You: Answer + the exact rows it used
 ```
+
+The two grey steps are the safety net:
+
+- **"Did I actually look anything up?"** If the AI tries to answer from memory without
+  checking the database, the system refuses to send that answer at all. An answer with
+  no lookup cannot be trusted, so it never ships.
+- **"Check every number."** After the AI writes its answer, the system re-reads every
+  figure in it and confirms it appears in the data that was actually retrieved.
 
 ---
 
@@ -24,18 +97,23 @@ copy .env.example .env    # add GOOGLE_API_KEY (free: aistudio.google.com)
 docker compose up
 ```
 
-| | |
+| What | Where |
 |---|---|
-| Streamlit UI | http://localhost:8501 |
-| API docs | http://localhost:8000/docs |
+| Web page you can use | http://localhost:8501 |
+| API documentation | http://localhost:8000/docs |
+| Health check | http://localhost:8000/healthz |
 | MCP endpoint | http://localhost:8765/mcp |
-| Health | http://localhost:8000/healthz |
 
-The database is committed, so nothing is scraped on first run. Only `GOOGLE_API_KEY`
-is required. Langfuse keys are optional — without them the app runs with tracing
-silently disabled, which is a supported configuration and is tested.
+The database ships with the code, so nothing is downloaded on first run. You need
+**one free API key** (Google AI Studio, no credit card). Langfuse keys are optional —
+without them the app runs perfectly with tracing turned off, and that path is tested.
 
-<details><summary>Without Docker (PowerShell)</summary>
+**How long it takes, measured rather than guessed:** the first `docker compose up`
+builds the image and takes about **15 minutes**, nearly all of it installing ~100
+pinned Python packages (526 seconds on the build machine). Every start after that comes
+off the cache in seconds. Verified end to end from a fresh `git clone`.
+
+<details><summary>Running it without Docker (PowerShell)</summary>
 
 ```powershell
 python -m venv venv; .\venv\Scripts\Activate.ps1
@@ -46,21 +124,22 @@ uvicorn app.api.main:app --port 8000                 # terminal 2
 streamlit run app/ui_streamlit/app.py                # terminal 3
 ```
 
-Rebuild the database from source: `python scripts/build_db.py`
+Rebuild the database from public sources: `python scripts/build_db.py`
 </details>
 
----
+## Things worth trying
 
-## Try these
-
-| Persona | Sector | Question |
+| Ask as | About | Question |
 |---|---|---|
 | all three | tech | Is this sector a good place to put money to work right now? |
-| mf_analyst | retail | Which would fit a long-term core holding versus a name to avoid? |
-| equity_analyst | manufacturing | Walk me through the margin profile — who's improving and who's under pressure? |
-| pe_analyst | tech | If I had to take one company private, which and what's the operational thesis? |
+| fund analyst | retail | Which would fit a long-term core holding versus a name to avoid? |
+| equity analyst | manufacturing | Walk me through the margin profile — who's improving and who's under pressure? |
+| PE analyst | tech | If I had to take one company private, which and what's the operational thesis? |
 | any | any | What's the most recent headcount signal you have for NVDA? |
-| any | any | What do you think about SpaceX? *(not in the dataset — it says so)* |
+| any | any | What do you think about SpaceX? *(it isn't in the data — watch it say so)* |
+
+Asking the same question as all three analysts is the most interesting thing you can do
+here.
 
 ```powershell
 curl.exe -X POST http://localhost:8000/v1/query `
@@ -68,10 +147,11 @@ curl.exe -X POST http://localhost:8000/v1/query `
   -d '{\"query\":\"Which companies look like attractive buyout targets?\",\"persona\":\"pe_analyst\",\"sector\":\"logistics\"}'
 ```
 
-**On the brief's `sector=logistics` example:** Logistics is a *shipped sector here*, so
-that request returns 200. The brief's worked example and its API test both use it, so
-shipping four sectors rather than three means every question in the brief runs
-verbatim. An unknown sector returns 422 naming the valid values:
+**A note on the brief's `sector=logistics` example:** logistics is a real sector here,
+so that request works and returns 200. The brief's worked example and its API test both
+use it, so shipping four sectors instead of three means every question in the brief runs
+exactly as written. Asking for a sector that doesn't exist returns a clear error rather
+than a crash or a made-up answer:
 
 ```json
 {"detail": "Unknown sector 'energy'. Valid: tech, retail, manufacturing, logistics",
@@ -80,230 +160,219 @@ verbatim. An unknown sector returns 422 naming the valid values:
 
 ---
 
-## Design write-up
+# The engineering
 
-### Schema decisions
+*Everything above is the what. This is the how, and why each choice was made.*
 
-Three tables: `companies` (identity), `financials` (dated numeric snapshots),
-`signals` (dated soft facts).
+## The data
 
-- **Financials are split from identity and dated.** Fundamentals are a time series;
-  a company's identity is not. Every answer can therefore state *as of when* it is
-  true, and re-running the scraper appends history rather than destroying it.
-  `UNIQUE(ticker, snapshot_date)` makes the ingest idempotent per day.
-- **`signals` is separate** because headcount and hiring notes are qualitative and
-  irregularly dated. A `COALESCE(as_of_date,'')` unique index is used rather than a
-  plain `UNIQUE`, because SQLite treats NULLs as distinct and an undated signal would
-  otherwise duplicate on every re-run.
-- **Provenance is a column, not a footnote.** Every table carries `source`.
-- **Missing data is NULL, never 0.** A zero margin and an unknown margin are different
-  facts. The agent is required to say "not available in the dataset", and the UI
-  renders NULL as an em dash.
-- **Fields were chosen to make persona divergence possible** — growth/beta/yield for
-  the fund lens, margins/returns/multiples for the equity lens, FCF/leverage/EV-EBITDA
-  for the deal lens.
+40 real companies across four sectors, built from two public sources.
 
-### MCP design
+- **Yahoo Finance** (`yfinance`) — the financial figures. Trailing-twelve-month, so it
+  can lag official filings by a quarter.
+- **SEC EDGAR** — the *date* on every employee-count figure.
 
-Seven tools: `list_sectors`, `dataset_overview`, `query_companies`,
+That second one deserves an explanation, because it's the kind of detail that decides
+whether a system is trustworthy. Yahoo gives you an employee count as a bare number with
+no date attached. Stamping it with today's date would be *inventing provenance* — making
+the data look fresher than it is, in the exact field this assessment uses to catch
+invention. So each headcount is dated to the period end of that company's most recent
+**Form 10-K** and cited to the filing itself. If EDGAR can't be reached, the date is
+stored as empty with a note saying why, and the agent reports the figure as undated.
+
+An undated fact is reported as undated. That's the rule.
+
+**Known data limits, stated plainly:**
+
+- Yahoo reports `debtToEquity` as a percentage; it's divided by 100 on the way in.
+- Yahoo reports `dividendYield` as a **percentage** (`1.96` = 1.96%) but
+  `trailingAnnualDividendYield` as a **fraction**. Telling them apart by size is wrong: a
+  "divide by 100 only if bigger than 1" rule silently stores every sub-1% yield **100×
+  too high**. Both are handled explicitly. This bug was caught and fixed during the build.
+- Some companies return incomplete data; those fields are stored empty, never as zero.
+- The snapshot is dated, and confidence drops as it ages — answers get *less* confident
+  over time rather than quietly stale.
+
+## The database design
+
+Three tables: **who a company is**, **what its numbers were on a given date**, and
+**dated soft facts** like employee counts.
+
+The reason they're separate: a company's identity doesn't change, but its financials are
+a *time series*. Keeping them apart means every answer can say *as of when* it is true,
+and re-running the data collector adds history instead of destroying it.
+
+- **Missing data is stored as empty, never as zero.** "We don't know this company's
+  margin" and "this company's margin is zero" are completely different facts, and
+  confusing them is one of the easiest ways to make an AI lie. The interface shows an
+  em dash, never a `0`.
+- **Every table records where its data came from.** Provenance is a column, not a
+  footnote in a document.
+- Uniqueness constraints make re-running the collector safe — including a subtle one:
+  SQLite treats empty values as always-different, so an undated fact would duplicate on
+  every run without a special index.
+
+## The MCP boundary
+
+Seven tools are exposed: `list_sectors`, `dataset_overview`, `query_companies`,
 `search_companies`, `get_company_detail`, `get_company_signals`, `compare_companies`.
 
-- **Capability-shaped, not table-shaped.** There is deliberately no `run_sql` tool —
-  handing an LLM raw SQL is an injection and correctness hazard.
-- **`compare_companies(fields=...)` is allowlisted.** Those names become SQL column
-  identifiers, and identifiers cannot be bound as parameters, so every requested field
-  is checked against a frozen set. Four injection payloads are tested against it.
-- **Absence is a typed result.** `get_company_detail` returns
-  `{"error": "No data for ticker 'X'"}`, and `search_companies` returns `[]` — an
-  authoritative "not in the dataset" that the agent can *retrieve* rather than infer.
-  That makes an out-of-scope refusal grounded in a real tool call.
-- **Docstring ordering is load-bearing.** FastMCP builds a tool's description from the
-  docstring up to its `Args:` block and silently drops the rest, so every statement
-  about what a result *means* sits above that block. Tests assert each tool's
-  registered description still carries its absence semantics, because this fails
-  silently.
-- **The boundary is enforced, not promised.** `tests/test_mcp_tools.py` walks the AST
-  of every file under `app/agent`, `app/api` and `app/ui_streamlit` and fails if any
-  imports the data layer or a SQL driver. A companion test proves the check itself can
-  fail, so it cannot rot into a no-op.
+- **There is deliberately no "run any query" tool.** Letting an AI write raw database
+  queries is both a security hole and a correctness hazard. Each tool does one specific,
+  typed job.
+- **`compare_companies` checks its inputs against a fixed list.** The field names it
+  accepts become part of a database query, and that kind of value can't be safely
+  escaped — so anything not on the approved list is rejected outright. Four attack
+  payloads are tested against it.
+- **"I don't have that" is a real answer, not an error.** `search_companies` returning
+  an empty list is an *authoritative* "not in the dataset" — which means the agent can
+  **look up** the fact that it has no data, rather than guessing. That's what makes an
+  honest refusal grounded in evidence.
+- **The tool descriptions are load-bearing, and one nearly broke silently.** FastMCP
+  builds each tool's description from its documentation up to the `Args:` section and
+  quietly discards the rest. Guidance written below that line never reaches the AI at
+  all, with no error. Tests now assert every tool's *registered* description still
+  contains its "what an empty result means" instruction.
+- **The boundary is enforced by a test, not by good intentions.** It parses the code of
+  every file that talks to the agent, the API and the UI, and fails if any of them
+  imports the database layer. A companion test proves the check itself can still fail,
+  so it can't quietly rot into something that always passes.
 
-### Persona design
+## How the three analysts actually differ
 
-Personas are not tone presets. The difference lives in structured data — a
-signal-by-persona table of *directional verdicts* — and the system prompt is a
-rendering of that table, so the prompt cannot drift from what the eval measures.
+They are not the same answer with different adjectives. The difference is stored as
+**data** — a table of what each lens concludes from a given signal — and the instructions
+given to the AI are generated *from* that table, so the two can never drift apart.
 
-| Signal | MF Analyst | Equity Analyst | PE Analyst |
+| Signal | Fund analyst | Equity analyst | PE analyst |
 |---|---|---|---|
-| Weak operating margin | negative | negative | **positive** — an operational lever |
-| High revenue growth | positive | positive | **negative** — priced in, raises entry multiple |
-| High dividend yield | positive | neutral | **negative** — cash that should service debt |
-| High beta | negative | neutral | ignored — not marked to market |
+| Weak operating margin | negative | negative | **positive** — something to fix |
+| High revenue growth | positive | positive | **negative** — too expensive to buy |
+| High dividend yield | positive | neutral | **negative** — cash that should repay debt |
+| High share volatility | negative | neutral | ignored — a private company isn't traded |
 
-A test asserts at least three signals are POSITIVE for one lens and NEGATIVE for
-another, so "the personas diverge" fails the build if it stops being true.
+A test requires at least three signals where one analyst says *positive* and another
+says *negative*. If the personas ever stop genuinely disagreeing, **the build fails.**
 
-The fund lens is defined as benchmark-relative, but the dataset holds no index data.
-Rather than let it invent one, its rules require it to construct the comparison from
-the retrieved peer set and *say* that the peer group is its benchmark proxy.
+One honesty detail: the fund analyst is defined as judging companies against a market
+benchmark — but this database has no benchmark data. Rather than let it invent an index
+level, its instructions require it to compare against the companies it actually
+retrieved and to *say out loud* that the peer group is standing in for a benchmark.
 
----
+## The safety layers
 
-## Guardrails
-
-| Tier | Check |
+| Stage | What it does |
 |---|---|
-| Input | injection patterns, length, off-topic redirect, PII redaction, advice-seeking |
-| Graph | `verify_grounding` — an answer with zero tool calls is refused, not shipped |
-| Output | ticker fabrication, number fabrication, NULL discipline, not-advice caveat |
+| Before the AI runs | blocks prompt-injection attempts, redirects off-topic questions, strips personal data |
+| While it runs | refuses to ship any answer produced without a database lookup |
+| After it answers | verifies every company and figure against retrieved data, attaches the not-advice notice |
 
 Two decisions worth naming:
 
-**Confidence is computed, never self-reported.** It is derived from evidence
-completeness — company count, NULL fields, snapshot age — and overwrites whatever the
-model claimed. Models are poorly calibrated about their own certainty; the data knows
-exactly how complete it is. The response model the LLM fills has no `confidence` field
-at all, so it cannot talk itself into a high score.
+**Confidence is calculated, never self-reported.** The AI is never asked how confident
+it is. Confidence is computed from the evidence — how many companies were found, how
+many fields were missing, how old the snapshot is. AI models are famously bad at judging
+their own certainty; the data knows exactly how complete it is. The AI's response format
+has no confidence field at all, so it cannot talk itself up.
 
-**PII is redacted before it travels, not just before it is logged.** The redacted
-query is what reaches the LLM provider and the tracing backend.
+**Personal data is removed before it travels, not just before it's logged.** If you put
+an email address in your question, the redacted version is what reaches the AI provider
+and the tracing service.
 
-The number-fabrication check took four rounds of fixes to stop punishing correct
-answers. It now understands that a value can be restated as a percentage, scaled to
-billions, or **derived** as a difference between two fields of the same company; that
-`15-16x` is a range and not the number `-16`; and that SEC accession numbers, ISO
-dates and URLs are dense with digits but contain no claims. A test asserts the
-loosened check still catches a genuine invention.
+The "check every number" step took four rounds of fixes to stop punishing *correct*
+answers. It now understands that a figure can be restated as a percentage, scaled to
+billions, or **calculated** from two fields of the same company; that `15-16x` is a range
+and not the number `-16`; and that filing reference numbers, dates and web links are full
+of digits but contain no claims. A test confirms the relaxed version still catches a
+genuinely invented number.
 
----
+## Does it work? The evidence
 
-## Evaluation
-
-`python evals/run_eval.py` runs 27 graded cases and writes
+`python evals/run_eval.py` runs 27 graded test cases and writes
 [`evals/results/report.md`](evals/results/report.md).
 
-| Metric | Target | Actual |
+| What's measured | Target | Result |
 |---|---|---|
-| Out-of-scope refusal accuracy | 100% | **100%** |
-| Groundedness (figures traceable to evidence) | ≥ 0.95 | **1.000** |
-| Persona divergence | ≥ 0.55 | **0.816** |
-| Zero-tool-call answers | 0 | **0** |
+| Refuses to discuss companies it lacks data on | 100% | **100%** |
+| Every figure traceable to real data | ≥ 95% | **100%** |
+| The three analysts genuinely diverge | ≥ 0.55 | **0.816** |
+| Answers written without looking anything up | 0 | **0** |
 
-**Groundedness is deterministic, not LLM-judged.** Every figure in an answer must
-trace to a retrieved value, checked with the same code the output guardrail runs in
-production. Ragas `faithfulness` was considered and rejected as the gate: it needs a
-judge model (Ragas defaults to OpenAI, which would break the promise that only
-`GOOGLE_API_KEY` is required), and an LLM-judged score is not reproducible enough to
-gate a build.
+**Groundedness is checked by arithmetic, not by another AI.** A popular approach is to
+have a second AI judge whether an answer is faithful. That was rejected: it needs a
+second paid provider (breaking the "one free key" promise), and an AI's opinion isn't
+repeatable enough to gate a build on. Instead every figure is matched against the actual
+retrieved rows, using the same code that runs in production.
 
-**Divergence is weighted toward conclusions, not vocabulary.** The obvious formulation
-— mostly lexical overlap plus lens-keyword recall — is circular, because the lens
-keywords are the same words the persona prompts inject. It scores highest on exactly
-the cosmetic tone change the brief says does not count. Here it is
-`0.6·conclusions + 0.2·lexical + 0.2·keywords`, and a test asserts that three answers
-stuffed with distinct lens vocabulary but picking the *same* companies score **below**
-the gate.
+**Divergence is scored on conclusions, not vocabulary.** The obvious way to measure it —
+counting how differently the analysts *write* — is circular, because the vocabulary is
+supplied by the instructions in the first place. It would score highest on exactly the
+cosmetic difference the brief says doesn't count. A test proves the point: three answers
+stuffed with distinct analyst jargon but recommending the *same companies* score **below
+the passing bar**.
 
-Conclusions are measured on the companies each lens *leads with*, not on everything it
-mentions. Observed: asked whether tech is a good place to deploy capital, all three
-lenses named all ten companies (membership divergence 0.27) while the buyout lens led
-with ADBE/META/CRM and the others led with NVDA/GOOGL/MSFT (lead divergence 0.83).
-Both numbers are in the report so the choice is auditable.
+The decisive test is simpler. The same weak-margin company is put to the fund analyst
+and the PE analyst, and they must reach opposite conclusions from an identical row:
 
-**The verdict probe** is the un-gameable version of the headline claim: the same
-weak-margin company put to the fund lens and the buyout lens. They must reach opposite
-conclusions from an identical row. They do:
+> **Fund analyst:** "its weak operating margin is a clear reason to **avoid** it"
+> **PE analyst:** "this is a significant **opportunity** rather than a defect"
 
-> **MF:** "its weak operating margin is a clear reason to **avoid** it"
-> **PE:** "this is a significant **opportunity** rather than a defect"
+No amount of clever wording can fake that.
 
----
+## The AI model, and what happens when it fails
 
-## Data and its limits
+**Google Gemini 2.5 Flash** is the primary, with **Groq** as an automatic backup. The
+free Gemini tier limits how many requests you can make per minute, and rate limits and
+network blips were the single largest source of failures while building this.
 
-40 companies across four sectors, from two public sources.
+The backup switches in at the *model* level, so a failure halfway through doesn't throw
+away work already done or re-run database queries. One subtlety mattered: the two
+providers need to be asked for structured output in **different ways**, so each is
+configured separately. Configuring them together would have meant the backup broke at
+the exact moment it was needed — which is the worst possible time to find out.
 
-- **Yahoo Finance (`yfinance`)** — the numeric snapshot, trailing-twelve-month, which
-  can lag filings by a quarter.
-- **SEC EDGAR** — the *date* on every headcount signal. Yahoo's `fullTimeEmployees` is
-  a bare integer with no as-of date, so dating it with the scrape date would invent
-  provenance in the exact field the brief uses to catch invention. Each figure is
-  dated to the period end of the company's most recent Form 10-K and cited to that
-  filing. When EDGAR cannot be reached the date is stored NULL with a basis line
-  saying so — an undated fact is reported as undated.
-
-Known caveats:
-
-- `debtToEquity` is reported by Yahoo as a percentage and is divided by 100 on ingest.
-- `dividendYield` is reported as a **percentage** (`1.96` = 1.96%), while
-  `trailingAnnualDividendYield` is a **fraction**. Disambiguating by magnitude is
-  wrong: a "divide by 100 only if the value exceeds 1" rule silently stores every
-  sub-1% yield 100× too high. Both fields' units are handled explicitly.
-- Some tickers return partial `info` dicts; those fields are stored NULL.
-- The committed snapshot is dated. Confidence degrades with snapshot age by design, so
-  answers become less confident over time rather than silently stale.
-- Eval `expected_facts` are pinned to the committed database. Re-running
-  `scripts/build_db.py` pulls fresh market data and will invalidate them.
-
----
-
-## LLM provider
-
-**Google Gemini 2.5 Flash**, with **Groq (`openai/gpt-oss-120b`) as a transparent
-fallback**. The free Gemini tier is per-minute rate limited, and rate limits and
-resolver blips were the single largest source of failure while building this.
-
-Failover is at the **model layer**, not the graph layer: `with_fallbacks` wraps the
-chat model, so a mid-conversation failure does not discard completed tool calls or
-re-run MCP queries. Structured output is configured **per provider** — Groq's default
-method selection fails on `gpt-oss-120b` with "Tool choice is required" while
-`json_schema` works, so wrapping the whole chain once would have applied one provider's
-strategy to both and the fallback would have broken at the exact moment it was needed.
-`GET /healthz` reports the active chain.
-
-Set only `GOOGLE_API_KEY` and the fallback is simply absent; nothing breaks.
-
----
+`GET /healthz` reports which providers are live. Set only `GOOGLE_API_KEY` and the
+backup is simply absent; nothing breaks.
 
 ## What I'd do next
 
-**Time-series ingest.** The schema already supports it — `financials` is keyed by
-`snapshot_date` and re-running the scraper appends rather than overwrites. Today every
-persona reasons about a single point in time, which is the sharpest limitation here:
-the equity lens is asked "who's improving and who's under pressure?" and can only
-infer trajectory from a static margin. With two or three snapshots it could answer
-that question directly, and the PE lens could underwrite a trend rather than a level.
+**Track data over time.** The database is already designed for it — figures are stored
+with a date, and re-running the collector adds new snapshots rather than overwriting.
+Today every analyst reasons about a single moment. That's the sharpest limitation here:
+the equity analyst is asked *"who's improving and who's under pressure?"* and can only
+infer a direction from a single static number. With two or three snapshots it could
+answer that question directly, and the PE analyst could underwrite a trend rather than a
+level.
 
-Also next: cut prompt cost by projecting only the active persona's `priority_fields`
-into the compose step (the tool for it, `compare_companies`, already exists), and add
-a `/compare` view that runs one retrieval and fans out to three personas — which would
-both perform the headline claim on screen and remove the worst rate-limit exposure.
+After that: send only the fields the active analyst actually cares about to the AI
+(roughly halving the cost per question — the tool for it already exists), and add a
+side-by-side view that runs one database lookup and fans it out to all three analysts —
+which would both *show* the headline claim on screen and remove the biggest rate-limit
+risk.
 
-## Non-goals
+## What this deliberately does not do
 
-- No auth or multi-tenancy — single-user assessment scope.
-- No real-time market data; every answer states its `snapshot_date`.
-- No vector store. The data is numeric and relational, so SQL over MCP is the correct
-  tool; embeddings here would be résumé-driven design.
-- No fine-tuning — persona differentiation is prompt architecture and field
-  prioritisation.
-- **This is not investment advice**, and an output guardrail enforces that on every
-  answer.
+- No user accounts or multi-tenancy — it's a single-user assessment.
+- No live market prices; every answer states the date of its data.
+- No vector search. The data is numbers in tables, so ordinary database queries are the
+  right tool; adding AI-style semantic search here would be technology for its own sake.
+- No model fine-tuning — the analysts differ through instruction design, not training.
+- **This is not investment advice**, and a guardrail enforces that on every answer.
 
-## Repository
+## Where things live
 
 ```
 app/
-  config.py            pydantic-settings; one place a key is named
-  logging_conf.py      structured JSON logs with a request-id ContextVar
-  data/                schema.sql, db.py (all SQL), financials.db (committed)
-  mcp_server/          FastMCP server — the only thing that touches SQLite
+  config.py            settings; one place any key is named
+  logging_conf.py      structured logs, each tagged with a request id
+  data/                schema.sql, db.py (all database access), financials.db
+  mcp_server/          the only program that opens the database
   agent/               personas, sectors, prompts, guardrails, graph, runner, llm
-  api/                 FastAPI: /v1/query, /v1/query/stream (SSE), registries, health
-  ui_streamlit/        the human interface, calling run_agent in-process
-scripts/               build_db.py, smoke_test.py
-evals/                 dataset.jsonl, run_eval.py, results/report.md
-tests/                 263 tests, no network, no API key required
+  api/                 REST endpoints, live-updating stream, health
+  ui_streamlit/        the web page, calling the same agent directly
+scripts/               build_db.py (rebuild data), smoke_test.py
+evals/                 the 27 test cases, the scorer, the committed report
+tests/                 263 tests — no network, no API key needed
 ```
 
 Run the checks: `pytest -q` and `ruff check .`

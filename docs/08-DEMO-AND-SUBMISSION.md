@@ -113,7 +113,8 @@ can see". Cut the recording if you stumble; three takes is normal.
 - [ ] No `TODO`, no commented-out blocks, no `print()` debugging left in
 
 ### The reviewer simulation (do this on a different folder)
-- [ ] Clean clone → `.env` → `docker compose up` → working app in under 5 minutes
+- [ ] Clean clone → `.env` → `docker compose up` → working app, no manual steps
+- [ ] Cold build time stated honestly in the README (~15 min build; seconds once cached)
 - [ ] Works with **no** Langfuse keys set (tracing silently disabled)
 - [ ] `/healthz` reports mcp/db/llm status
 - [ ] README's first screen answers: what is it, how do I run it, what's impressive

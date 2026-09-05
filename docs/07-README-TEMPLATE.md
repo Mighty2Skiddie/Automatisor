@@ -26,7 +26,7 @@ financials, which it reaches **exclusively through MCP tools**, never by direct
 database access. The same `run_agent()` function serves the web UI, a Streamlit
 UI, and the REST API.
 
-## Run it in 60 seconds
+## Run it
 
 ```bash
 git clone <repo> && cd sector-analyst-agent

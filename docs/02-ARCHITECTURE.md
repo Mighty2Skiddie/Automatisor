@@ -50,7 +50,7 @@ graph → MCP tool calls → SQLite, with Langfuse watching everything.
 |---|---|---|
 | LangGraph over a plain ReAct loop | `create_react_agent`, raw SDK loop | We need *nodes* to hang guardrails and a grounding-verification gate on. A graph makes the control flow inspectable and testable; a loop hides it. |
 | MCP over streamable-HTTP | stdio transport | The MCP server runs as its own process/container and is reachable by the API, the UI dev server, and MCP Inspector at the same time. stdio would bind it to one parent process. |
-| SQLite over Postgres | Postgres | The brief permits it, the dataset is ~30 companies, and a committed `.db` file means the reviewer runs the repo in 60 seconds with zero infrastructure. |
+| SQLite over Postgres | Postgres | The brief permits it, the dataset is ~30 companies, and a committed `.db` file means the reviewer needs zero infrastructure and nothing is scraped on first run. (Measured: a *cold* `docker compose build` takes ~15 minutes, almost all of it `pip install`; start-up from a warm image cache is seconds.) |
 | Structured SQL over a vector store | Chroma/pgvector + embeddings | The data is numeric and relational. Semantic search over numbers is strictly worse than `WHERE sector = ?`. Choosing the boring correct tool is the signal. |
 | Gemini 2.5 Flash | GPT-4o, Claude | Free tier removes any key-sharing friction for the reviewer, supports native structured output, and is fast enough for a live demo. Provider is swappable in one line — documented. |
 | Persona as *field-priority + framework*, not tone | Tone-only prompt | The brief explicitly warns against cosmetic tone change. Different weightings over identical rows produce genuinely different conclusions. |

@@ -243,5 +243,8 @@ git clone <repo>; cd sector-analyst-agent
 copy .env.example .env    # add keys
 docker compose up
 ```
-If the app is not usable within 5 minutes of a clean clone, fix that before
-anything else. This is the most common reason good take-homes fail.
+A clean clone must reach a working app with no manual steps beyond adding a key.
+Note that "5 minutes" is wall-clock optimism on a *cold* Docker build: measured on
+the build machine, `pip install` alone took 526s and the full image build ~15
+minutes. Quote the warm-cache number and state the cold one honestly rather than
+promising a figure the reviewer will watch fail. This is the most common reason good take-homes fail.
