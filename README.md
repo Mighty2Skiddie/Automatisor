@@ -1,6 +1,6 @@
 # Sector Analyst Agent
 
-**[Live demo](https://automatisor.vercel.app)** · [API docs](https://mindtraqk-m2fgntifva-el.a.run.app/docs) · [Health](https://mindtraqk-m2fgntifva-el.a.run.app/health)
+**[Live demo](https://automatisor.vercel.app)**
 
 > The demo runs on free-tier infrastructure that scales to zero, so the first request
 > after an idle period pays a ~30 second cold start *before* the 60-100 seconds a query
