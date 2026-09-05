@@ -19,7 +19,7 @@ pins each inverting cell to literal language in that persona's rendered prompt:
 flipping a rule here fails the suite even though the matrix is untouched.
 
 Nothing here contains a company name or a figure. Every fact in an answer comes from
-a live MCP tool call (CLAUDE.md rule 2).
+a live MCP tool call — no company fact is ever baked into a prompt.
 """
 
 from __future__ import annotations

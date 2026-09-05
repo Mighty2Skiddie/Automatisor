@@ -36,3 +36,9 @@ web/.next/
 web/tsconfig.tsbuildinfo
 web/.vercel/
 web/.env.local
+
+# Internal build docs and agent instructions — kept locally, not published.
+# The submission is the code, its README and the eval report; these are the
+# scaffolding used to produce it.
+/docs/
+/CLAUDE.md

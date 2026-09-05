@@ -332,7 +332,7 @@ def test_every_prompt_carries_the_hard_rules(persona_key: str, sector_key: str) 
 
 
 # --------------------------------------------------------------------------
-# No hardcoded facts — CLAUDE.md rule 2, enforced structurally
+# No hardcoded facts in prompts — enforced structurally
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("sector_key", SECTOR_KEYS)

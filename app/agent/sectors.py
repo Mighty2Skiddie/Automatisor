@@ -13,8 +13,8 @@ listing what is available.
 sector context is framing — what kind of business this is and which economics tend
 to matter — and it goes into the system prompt. If a fact lived here it would be a
 fact the agent could state without querying the database, which is precisely what
-CLAUDE.md rule 2 forbids. ``tests/test_personas.py`` enforces this by rejecting any
-digit or ticker-shaped token in the text below.
+the no-hardcoded-facts rule forbids. ``tests/test_personas.py`` enforces it by
+rejecting any digit or ticker-shaped token in the text below.
 """
 
 from __future__ import annotations

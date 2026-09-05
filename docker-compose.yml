@@ -10,7 +10,7 @@
 #
 # Four services. The three Python roles share one image; `web` builds separately
 # because it is a Node app. Both UIs are shipped: Streamlit is the brief-named
-# fallback, Next.js is the primary interface built to docs/04-FRONTEND-SPEC.md.
+# fallback, Next.js is the primary interface.
 
 services:
   mcp:

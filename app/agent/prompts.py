@@ -8,7 +8,7 @@ A prompt is composed from four parts, in this order:
 4. the output contract the model must fill.
 
 None of these contain a fact about a company. Facts arrive only from MCP tool calls
-made during the request that needs them (CLAUDE.md rule 2).
+made during the request that needs them. No company fact is baked in here.
 
 ``OUTPUT_CONTRACT_FIELDS`` is the single source of truth for what the model emits.
 Note that this is deliberately *narrower* than the ``AgentResponse`` returned by the
