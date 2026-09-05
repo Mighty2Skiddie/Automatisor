@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import re
 import sqlite3
 from pathlib import Path
 
@@ -58,6 +59,11 @@ def _registered_tools() -> dict[str, object]:
         return {name: await mcp_server.mcp.get_tool(name) for name in EXPECTED_TOOLS}
 
     return asyncio.run(collect())
+
+
+def _description(tool_name: str) -> str:
+    """The description string the model is actually shown for one tool."""
+    return getattr(_registered_tools()[tool_name], "description", "") or ""
 
 
 # --------------------------------------------------------------------------
@@ -205,6 +211,85 @@ def test_registered_description_states_units(tool_name: str) -> None:
     description = getattr(tool, "description", "") or ""
     assert "decimal fraction" in description.lower()
     assert "never" in description.lower() and "zero" in description.lower()
+
+
+# --------------------------------------------------------------------------
+# Signals: the description may not promise more than the dataset holds
+# --------------------------------------------------------------------------
+
+# Every signal kind this project has discussed carrying. The schema is typed so any of
+# them *could* be stored; which ones actually are is read from the database below,
+# never assumed here.
+CANDIDATE_SIGNAL_TYPES = ("headcount", "hiring", "news")
+
+# A mention of an absent kind is fine — required, even — as long as the sentence
+# carrying it says the dataset lacks it. These are the words that make a sentence
+# disclaim rather than offer. Matched on word boundaries, because a substring test
+# would accept "hiring notes" as a disclaimer on the strength of "not" inside "notes"
+# — and "hiring notes" is exactly how the architecture doc phrases it, so that is a
+# sentence someone could plausibly paste in.
+DISCLAIMING_WORDS = ("no", "not", "none", "never", "only", "empty", "lacks", "without")
+DISCLAIMER = re.compile(r"\b(?:" + "|".join(DISCLAIMING_WORDS) + r")\b", re.IGNORECASE)
+
+
+def _sentences(text: str) -> list[str]:
+    return [chunk.strip() for chunk in re.split(r"(?<=[.!?])\s+", text) if chunk.strip()]
+
+
+def _signal_types_in_database() -> set[str]:
+    """Distinct `signal_type` values the configured database actually contains.
+
+    Read live rather than hardcoded so that loading real hiring or news signals
+    relaxes these assertions on its own, instead of leaving a stale test forbidding
+    the tool from advertising data it has since gained.
+    """
+    path = mcp_server.settings.db_file
+    if not path.exists():
+        pytest.skip("database has not been built")
+    connection = sqlite3.connect(path)
+    try:
+        rows = connection.execute("SELECT DISTINCT signal_type FROM signals").fetchall()
+    except sqlite3.OperationalError as exc:
+        pytest.skip(f"signals table unavailable: {exc}")
+    finally:
+        connection.close()
+    return {str(row[0]).strip().lower() for row in rows}
+
+
+def test_signals_description_names_the_signal_types_the_database_holds() -> None:
+    """Whatever the dataset does carry must be named where the model can see it."""
+    description = _description("get_company_signals").lower()
+    unnamed = sorted(kind for kind in _signal_types_in_database() if kind not in description)
+    assert not unnamed, (
+        f"get_company_signals never mentions signal types it holds: {unnamed}"
+    )
+
+
+@pytest.mark.parametrize("kind", CANDIDATE_SIGNAL_TYPES)
+def test_signals_description_never_promises_an_absent_signal_type(kind: str) -> None:
+    """The tool must disclaim signal kinds the dataset cannot deliver, not offer them.
+
+    The brief asks for "the most recent headcount or hiring signal", so a reviewer will
+    ask for a hiring signal by name. A description that opens by offering hiring and
+    news signals invites the model to answer with a headcount figure as though it were
+    the thing asked for — the exact substitution this system treats as a lie. And
+    because FastMCP truncates the description at ``Args:``, a correction written into
+    the argument docs would never reach the model at all.
+    """
+    if kind in _signal_types_in_database():
+        pytest.skip(f"the database holds {kind!r} signals, so advertising them is honest")
+
+    description = _description("get_company_signals")
+    mentions = [line for line in _sentences(description) if kind in line.lower()]
+    assert mentions, (
+        f"get_company_signals never tells the model the dataset holds no {kind!r} "
+        "signals, so it cannot say so when asked for one."
+    )
+    for sentence in mentions:
+        assert DISCLAIMER.search(sentence), (
+            f"get_company_signals offers {kind!r} signals the database does not "
+            f"contain: {sentence!r}"
+        )
 
 
 def test_argument_descriptions_reach_the_input_schema() -> None:

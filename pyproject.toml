@@ -40,6 +40,9 @@ ignore = [
 "evals/*.py" = ["T20"]
 # Streamlit apps are scripts by design.
 "app/ui_streamlit/*.py" = ["T20"]
+# A container entrypoint's interface IS stdout — Cloud Run captures it as the log
+# stream, so printing startup state is the point, not a debugging leftover.
+"deploy/*.py" = ["T20"]
 # Pytest fixtures requested purely for their side effects read as unused arguments,
 # and stub doubles legitimately accept arguments they ignore.
 "tests/*.py" = ["ARG001", "ARG002", "ARG005"]

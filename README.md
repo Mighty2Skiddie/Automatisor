@@ -1,5 +1,11 @@
 # Sector Analyst Agent
 
+**[Live demo](https://mindtraqk.vercel.app)** · [API docs](https://mindtraqk-m2fgntifva-el.a.run.app/docs) · [Health](https://mindtraqk-m2fgntifva-el.a.run.app/health)
+
+> The demo runs on free-tier infrastructure that scales to zero, so the first request
+> after an idle period pays a ~30 second cold start *before* the 60-100 seconds a query
+> normally takes. It is not stuck. Subsequent questions are the normal 60-100s.
+
 **Three financial analysts. One set of facts. Three different answers — and every
 number is real.**
 
@@ -30,11 +36,13 @@ sound clever, and it's the behaviour this system is built and tested for.
 
 ```mermaid
 flowchart TB
-    Person["👤 A person<br/>asks a question"] --> UI["Streamlit web page"]
+    Person["👤 A person<br/>asks a question"] --> Web["Next.js web app<br/>the main screen"]
+    Person --> UI["Streamlit page<br/>a simpler fallback"]
     System["🖥️ Another program<br/>asks a question"] --> API["REST API"]
 
-    UI --> Agent
+    Web --> API
     API --> Agent
+    UI --> Agent
 
     Agent["🧠 <b>The agent</b><br/>one shared brain<br/>(run_agent)"]
 
@@ -48,6 +56,11 @@ flowchart TB
     style MCP fill:#eef7ee,stroke:#1f6f5c,stroke-width:2px
     style DB fill:#f7f2e8,stroke:#a84b12,stroke-width:2px
 ```
+
+Three ways in, one brain. The **Next.js app** is the screen this is meant to be seen
+on; it goes through the REST API, so it uses exactly the door another program would.
+The **Streamlit page** is a plainer fallback that calls the agent directly. Neither UI
+holds a second copy of the reasoning — they both end up in the same function.
 
 **The important part is the wall in the middle.** The agent is *never* allowed to open
 the database itself. It has to ask the MCP server, which is a separate program running
@@ -97,21 +110,30 @@ copy .env.example .env    # add GOOGLE_API_KEY (free: aistudio.google.com)
 docker compose up
 ```
 
+Or use the hosted demo above — no setup at all.
+
 | What | Where |
 |---|---|
-| Web page you can use | http://localhost:8501 |
+| **The web app — start here** (Next.js, the primary UI) | http://localhost:3000 |
+| Side-by-side view: one question, all three analysts | http://localhost:3000/compare |
+| The simpler fallback UI (Streamlit) | http://localhost:8501 |
 | API documentation | http://localhost:8000/docs |
 | Health check | http://localhost:8000/healthz |
 | MCP endpoint | http://localhost:8765/mcp |
+
+`docker compose up` starts all four services — MCP server, API, Streamlit, and the
+Next.js app.
 
 The database ships with the code, so nothing is downloaded on first run. You need
 **one free API key** (Google AI Studio, no credit card). Langfuse keys are optional —
 without them the app runs perfectly with tracing turned off, and that path is tested.
 
 **How long it takes, measured rather than guessed:** the first `docker compose up`
-builds the image and takes about **15 minutes**, nearly all of it installing ~100
-pinned Python packages (526 seconds on the build machine). Every start after that comes
-off the cache in seconds. Verified end to end from a fresh `git clone`.
+builds two images. The Python one — MCP server, API and Streamlit all run from it — was
+timed at about **15 minutes** from a fresh `git clone`, nearly all of it installing ~100
+pinned Python packages (526 seconds on the build machine). The Next.js image builds
+alongside it and adds an `npm ci` and a production build, which has not been timed
+separately. Every start after that comes off the cache in seconds.
 
 <details><summary>Running it without Docker (PowerShell)</summary>
 
@@ -119,10 +141,17 @@ off the cache in seconds. Verified end to end from a fresh `git clone`.
 python -m venv venv; .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-python -m app.mcp_server.server                      # terminal 1
-uvicorn app.api.main:app --port 8000                 # terminal 2
-streamlit run app/ui_streamlit/app.py                # terminal 3
+python -m app.mcp_server.server                      # terminal 1 — port 8765
+uvicorn app.api.main:app --port 8000                 # terminal 2 — port 8000
+streamlit run app/ui_streamlit/app.py                # terminal 3 — port 8501
+
+cd web; npm install; npm run dev                     # terminal 4 — port 3000
 ```
+
+Four terminals, because these are four separate programs. `docker compose up` runs all
+four for you; this is the version for working on one of them. The Next.js app needs
+Node (the Docker image pins Node 22) and talks to the API on port 8000, so terminals 1
+and 2 have to be up first.
 
 Rebuild the database from public sources: `python scripts/build_db.py`
 </details>
@@ -139,7 +168,8 @@ Rebuild the database from public sources: `python scripts/build_db.py`
 | any | any | What do you think about SpaceX? *(it isn't in the data — watch it say so)* |
 
 Asking the same question as all three analysts is the most interesting thing you can do
-here.
+here — http://localhost:3000/compare does it in one click and shows the three answers
+side by side.
 
 ```powershell
 curl.exe -X POST http://localhost:8000/v1/query `
@@ -259,6 +289,38 @@ benchmark — but this database has no benchmark data. Rather than let it invent
 level, its instructions require it to compare against the companies it actually
 retrieved and to *say out loud* that the peer group is standing in for a benchmark.
 
+## The screen (Next.js)
+
+The brief says "Streamlit **or equivalent**", so the primary UI is a Next.js 15 app in
+`web/` and the Streamlit page stays as a fallback. It is laid out as a desk rather than
+a chat app: a **rail** on the left for who is reading and what they are reading over, an
+**answer column** in the middle, and an **evidence panel** on the right holding the exact
+database rows behind the answer. Below 1100px the evidence panel moves under the answer;
+below 720px the rail collapses to two dropdowns.
+
+**The evidence panel fills before the answer arrives.** That ordering is the point of
+the screen. A reviewer's real question is "is it retrieving, or making it up?", and the
+honest way to answer it is to show the rows landing first and the prose arriving after
+them, rather than asking anyone to trust a citation list printed at the end.
+
+**`/compare` runs one question through all three analysts** and puts the three
+conclusions in three columns — the headline claim of this project, performed rather than
+asserted. Each column lists the companies its own run read, and the footer counts how
+many were read by *every* lens, so the "same data, different conclusions" line is
+measured on screen instead of assumed. The three runs are **sequential, not parallel**:
+three simultaneous agent runs is the most quota-exposed thing this system can do on a
+free-tier model with a per-minute limit, and firing them together is how a live demo
+earns a rate-limit error in front of the person evaluating it. Each column also fails on
+its own, so a rejected third run does not blank the two conclusions already on screen.
+
+**The answer is not streamed word by word, and the UI does not pretend it is.** The
+final answer is a *structured object* with typed fields, and a half-parsed object is not
+a partial answer — it is nothing you can show anybody. So `POST /v1/query/stream` sends
+what is genuinely ready when it is ready: `progress` events named after the graph step
+that just finished ("Querying the database over MCP", "Reasoning as the analyst"), then
+`evidence` the moment the rows come back, then the complete `response`, then `done`.
+Fake word-by-word streaming would have looked busier and told the user less.
+
 ## The safety layers
 
 | Stage | What it does |
@@ -345,10 +407,11 @@ answer that question directly, and the PE analyst could underwrite a trend rathe
 level.
 
 After that: send only the fields the active analyst actually cares about to the AI
-(roughly halving the cost per question — the tool for it already exists), and add a
-side-by-side view that runs one database lookup and fans it out to all three analysts —
-which would both *show* the headline claim on screen and remove the biggest rate-limit
-risk.
+(roughly halving the cost per question — the tool for it already exists), and make
+`/compare` share its retrieval. Today each of its three columns is a full independent
+agent run, so the same rows are fetched three times; one lookup fanned out to all three
+analysts would be cheaper, faster, and a stricter proof that the columns really are
+reading identical data.
 
 ## What this deliberately does not do
 
@@ -369,7 +432,11 @@ app/
   mcp_server/          the only program that opens the database
   agent/               personas, sectors, prompts, guardrails, graph, runner, llm
   api/                 REST endpoints, live-updating stream, health
-  ui_streamlit/        the web page, calling the same agent directly
+  ui_streamlit/        the fallback page, calling the same agent directly
+web/                   the primary UI — Next.js 15, TypeScript, Tailwind
+  app/                 the desk page, the /compare route, global styles
+  components/          desk rail, answer block, evidence panel, compare view
+  lib/                 the one module that calls the API, plus formatting and types
 scripts/               build_db.py (rebuild data), smoke_test.py
 evals/                 the 27 test cases, the scorer, the committed report
 tests/                 263 tests — no network, no API key needed

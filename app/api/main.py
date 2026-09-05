@@ -436,7 +436,13 @@ async def get_sectors() -> list[SectorInfo]:
     ]
 
 
-@app.get("/healthz", response_model=HealthResponse, summary="Liveness and dependencies")
+# Two paths for one handler. Google's frontend intercepts /healthz on Cloud Run and
+# answers 404 before the request reaches the container — verified in production: /docs
+# and /v1/sectors arrive and are logged, /healthz never appears in the request log at
+# all. /health is the deployed path; /healthz stays for local runs, docker compose and
+# anything already pointing at it.
+@app.get("/health", response_model=HealthResponse, summary="Liveness and dependencies")
+@app.get("/healthz", response_model=HealthResponse, include_in_schema=False)
 async def healthz() -> HealthResponse:
     """Report the state of each dependency.
 

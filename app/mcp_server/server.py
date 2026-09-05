@@ -158,24 +158,30 @@ def get_company_detail(ticker: str) -> dict[str, Any]:
 
 @mcp.tool
 def get_company_signals(ticker: str, signal_type: str = "") -> list[dict[str, Any]]:
-    """Return dated soft facts for a company — headcount, hiring and news signals.
+    """Return this company's dated headcount signals, newest first.
 
-    This is the tool for "what is the most recent headcount or hiring signal you
-    have?". Results are newest first.
+    **Headcount is the only kind of signal in this dataset.** It holds no hiring
+    signals and no news signals. If you are asked for a hiring signal, a news signal,
+    or any other kind, say plainly that the dataset carries headcount only — do not
+    hand back a headcount figure as though it answered the question, and do not read
+    a hiring trend out of a single headcount number.
 
     Each row carries `signal_value` (human-readable), `numeric_value`, `as_of_date`,
-    `as_of_basis` and `source`.
+    `as_of_basis` and `source`. Each headcount is dated to the period end of that
+    company's most recent annual report (Form 10-K), so it is an annual figure that is
+    usually months old, not a live one.
 
     **Report `as_of_date` and `source` whenever you quote one of these figures.**
     `as_of_date` may be null, which means the source does not date the figure —
     `as_of_basis` then explains why. When it is null, say the dataset does not date
     the figure. Never substitute the retrieval date for the as-of date.
 
-    An empty list means no such signal exists for that company.
+    An empty list means the dataset holds no signal of that kind for that company.
 
     Args:
         ticker: Exchange ticker, case-insensitive.
-        signal_type: Narrow to one kind, currently "headcount". Leave empty for all.
+        signal_type: Narrow to one kind. "headcount" is the only value present, so
+            any other value returns an empty list. Leave empty for all.
     """
     return db.get_company_signals(settings.db_file, ticker, signal_type)
 

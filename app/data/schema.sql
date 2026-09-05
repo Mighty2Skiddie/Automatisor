@@ -2,9 +2,9 @@
 --
 -- Three tables, normalised on the axis that actually matters here: a company's
 -- identity is stable, its financials are a time series, and its soft facts
--- (headcount, hiring, news) are irregularly dated and qualitative. Collapsing
--- these into one wide table would let the agent quietly cite a stale number with
--- no way to say when it was true.
+-- (today, headcount) are irregularly dated and qualitative. Collapsing these into
+-- one wide table would let the agent quietly cite a stale number with no way to
+-- say when it was true.
 --
 -- UNIT CONVENTIONS (the agent's prompt restates these; the guardrails depend on them)
 --   market_cap, revenue, free_cash_flow ... USD, absolute
@@ -59,13 +59,18 @@ CREATE TABLE IF NOT EXISTS financials (
 CREATE INDEX IF NOT EXISTS ix_financials_ticker_date
     ON financials (ticker, snapshot_date DESC);
 
--- Soft facts: headcount, hiring signals, news. Separate because they are
--- qualitative, irregularly dated, and frequently undated at the source — which
--- the schema records honestly rather than papering over with the scrape date.
+-- Soft facts. Separate from `financials` because they are qualitative, irregularly
+-- dated, and frequently undated at the source — which the schema records honestly in
+-- as_of_basis rather than papering over with the scrape date.
+--
+-- The table is typed by signal_type rather than being a single headcount column so
+-- that other kinds (hiring, news) can land here without a migration. Nothing in the
+-- system may claim such a signal exists before a row of that type does; the MCP tool
+-- description states the same, and tests/test_mcp_tools.py holds it to what is here.
 CREATE TABLE IF NOT EXISTS signals (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     ticker        TEXT NOT NULL REFERENCES companies (ticker) ON DELETE CASCADE,
-    signal_type   TEXT NOT NULL,             -- 'headcount' | 'hiring' | 'news'
+    signal_type   TEXT NOT NULL,             -- populated today: 'headcount' only
     signal_value  TEXT NOT NULL,             -- human-readable form of the fact
     numeric_value REAL,                      -- machine-readable form where one exists
     as_of_date    TEXT,                      -- NULL when the source does not date it

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import itertools
 import re
+from typing import Final
 
 import pytest
 
@@ -129,9 +130,138 @@ def test_only_the_fund_lens_prices_volatility() -> None:
     assert row["pe_analyst"] is Verdict.IGNORED
 
 
-def test_persona_verdicts_property_matches_the_matrix() -> None:
+def test_persona_verdicts_property_is_only_a_view_of_the_matrix() -> None:
+    """Wiring check, and deliberately nothing more.
+
+    ``Persona.verdicts`` is *derived* from ``DIVERGENCE_MATRIX``, so this can only
+    catch a mis-keyed lookup. It cannot catch a persona whose decision rules
+    contradict its own column — invert a rule and this still passes. The tests in
+    the next section are the ones that make the matrix load-bearing.
+    """
     for key, persona in PERSONAS.items():
         assert persona.verdicts == {s: DIVERGENCE_MATRIX[s][key] for s in SIGNALS}
+        assert list(persona.verdicts) == list(SIGNALS)
+
+
+# --------------------------------------------------------------------------
+# The matrix must agree with what the model is actually told
+# --------------------------------------------------------------------------
+#
+# DIVERGENCE_MATRIX is not sent to the model — ``decision_rules`` is. Nothing else
+# in the suite ties the two together, so without this section someone could invert a
+# rule (have the buyout lens read a weak margin as a defect) and every other test
+# would still pass while the agent's behaviour reversed.
+#
+# The phrases below are lifted verbatim, lower-cased, from the rules each persona
+# actually renders into its prompt. Inverting a rule breaks the link twice over: the
+# persona loses its own phrase, and it picks up the phrase belonging to the lens that
+# reads that signal the opposite way.
+
+DIRECTIONAL: Final[frozenset[Verdict]] = frozenset({Verdict.POSITIVE, Verdict.NEGATIVE})
+
+PROMPT_EVIDENCE: Final[dict[tuple[str, str], tuple[str, ...]]] = {
+    ("weak_operating_margin", "mf_analyst"): (
+        "operating margin is a reason to avoid",
+        "treat it as a defect",
+    ),
+    ("weak_operating_margin", "equity_analyst"): (
+        "weak operating margin means the company is under pressure",
+    ),
+    ("weak_operating_margin", "pe_analyst"): (
+        "weak operating margin is an opportunity",
+        "operational lever you would pull",
+    ),
+    ("high_revenue_growth", "mf_analyst"): (
+        "durable revenue growth is the primary case for owning",
+    ),
+    ("high_revenue_growth", "equity_analyst"): (
+        "revenue growth above the peer set is a positive",
+    ),
+    ("high_revenue_growth", "pe_analyst"): ("high revenue growth is a caution",),
+    ("high_dividend_yield", "mf_analyst"): ("dividend yield matters as part of total return",),
+    ("high_dividend_yield", "pe_analyst"): ("dividend yield is a negative",),
+    # Signals below carry no inversion, so they are not required by the coverage gate.
+    # They are pinned anyway because the rule text exists and should not silently go.
+    ("low_debt_to_equity", "mf_analyst"): ("low debt/equity is a positive",),
+    ("low_debt_to_equity", "pe_analyst"): ("low debt/equity is strongly positive",),
+    ("high_beta", "mf_analyst"): ("high beta is a negative",),
+    ("high_ev_to_ebitda", "equity_analyst"): ("multiple is a negative only when",),
+    ("high_ev_to_ebitda", "pe_analyst"): ("high entry multiple kills a deal",),
+}
+
+
+def _inverting_signals() -> list[str]:
+    """Signals one lens reads as POSITIVE and another as NEGATIVE."""
+    return [
+        signal
+        for signal, table in DIVERGENCE_MATRIX.items()
+        if Verdict.POSITIVE in table.values() and Verdict.NEGATIVE in table.values()
+    ]
+
+
+def test_prompt_evidence_only_pins_directional_cells() -> None:
+    """Guard the fixture: a phrase pinned to a NEUTRAL cell would assert nothing."""
+    for signal, persona_key in PROMPT_EVIDENCE:
+        assert signal in SIGNALS, f"{signal} is not a signal"
+        assert persona_key in PERSONA_KEYS, f"{persona_key} is not a persona"
+        assert DIVERGENCE_MATRIX[signal][persona_key] in DIRECTIONAL
+
+
+def test_every_inverting_cell_is_backed_by_prompt_language() -> None:
+    """A signal that carries the divergence claim must be visible in the prompts.
+
+    Add a fourth inversion to the matrix and this fails until the persona's rules
+    actually say something directional about it — which is the point: the matrix is
+    a claim about behaviour, and behaviour comes from the prompt.
+    """
+    missing = [
+        (signal, key)
+        for signal in _inverting_signals()
+        for key, verdict in DIVERGENCE_MATRIX[signal].items()
+        if verdict in DIRECTIONAL and (signal, key) not in PROMPT_EVIDENCE
+    ]
+    assert not missing, f"inverting cells with no prompt language: {missing}"
+
+
+@pytest.mark.parametrize(("signal", "persona_key"), sorted(PROMPT_EVIDENCE))
+def test_each_persona_says_what_its_matrix_column_claims(signal: str, persona_key: str) -> None:
+    """The rules the model receives must carry this cell's verdict in words."""
+    prompt = PERSONAS[persona_key].system_prompt.lower()
+    verdict = DIVERGENCE_MATRIX[signal][persona_key]
+    missing = [phrase for phrase in PROMPT_EVIDENCE[(signal, persona_key)] if phrase not in prompt]
+    assert not missing, (
+        f"{persona_key} is {verdict} on {signal} in the matrix but its prompt "
+        f"does not say so: missing {missing}"
+    )
+
+
+@pytest.mark.parametrize("signal", _inverting_signals())
+def test_opposed_lenses_do_not_share_each_others_framing(signal: str) -> None:
+    """The inverted half of the pair must be absent, not merely outweighed.
+
+    Presence alone is a weak check — a rule could say both things. This asserts the
+    contrapositive: the lens that reads a weak margin as an opportunity must not
+    also be telling the model to treat it as a defect.
+    """
+    row = DIVERGENCE_MATRIX[signal]
+    for key, verdict in row.items():
+        if verdict not in DIRECTIONAL:
+            continue
+        prompt = PERSONAS[key].system_prompt.lower()
+        for other_key, other_verdict in row.items():
+            if other_key == key or other_verdict not in DIRECTIONAL or other_verdict is verdict:
+                continue
+            borrowed = [p for p in PROMPT_EVIDENCE.get((signal, other_key), ()) if p in prompt]
+            assert not borrowed, (
+                f"{key} is {verdict} on {signal} but its prompt uses "
+                f"{other_key}'s {other_verdict} framing: {borrowed}"
+            )
+
+
+def test_assembled_prompt_carries_the_personas_rendered_lens() -> None:
+    """The checks above read ``Persona.system_prompt``; this is what reaches the model."""
+    for persona in PERSONAS.values():
+        assert persona.system_prompt in build_system_prompt(persona, SECTORS["tech"])
 
 
 # --------------------------------------------------------------------------
@@ -146,6 +276,28 @@ def test_each_prompt_contains_its_own_lens_keywords(persona_key: str) -> None:
     prompt = build_system_prompt(persona, SECTORS["tech"]).lower()
     missing = [word for word in persona.lens_keywords if word.lower() not in prompt]
     assert not missing, f"{persona_key} prompt is missing {missing}"
+
+
+def test_equity_lens_covers_all_four_elements_the_brief_names() -> None:
+    """The brief specifies earnings, margins, competitive positioning and price targets.
+
+    The first three are derivable from columns the database holds; the fourth is not,
+    and the required behaviour there is a plain refusal rather than a guess — the same
+    posture the fund lens takes on its missing benchmark data.
+    """
+    prompt = PERSONAS["equity_analyst"].system_prompt.lower()
+    for element in ("earnings", "margin", "competitive position", "peer set"):
+        assert element in prompt, f"equity lens never mentions {element}"
+    assert "price target" in prompt
+    assert "does not support a price target" in prompt
+
+
+def test_no_persona_claims_data_the_dataset_does_not_hold() -> None:
+    """Absent fields must be declined, never implied. Fabrication is the worst failure."""
+    equity = PERSONAS["equity_analyst"].system_prompt.lower()
+    assert "no analyst price targets, forward estimates or consensus figures" in equity
+    fund = PERSONAS["mf_analyst"].system_prompt.lower()
+    assert "no index or benchmark data" in fund
 
 
 def test_prompts_do_not_borrow_another_personas_conclusions() -> None:

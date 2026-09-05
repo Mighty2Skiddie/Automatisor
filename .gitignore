@@ -34,3 +34,5 @@ smoke_out.txt
 web/node_modules/
 web/.next/
 web/tsconfig.tsbuildinfo
+web/.vercel/
+web/.env.local

@@ -1,0 +1,31 @@
+# Cloud Build config. Needed rather than a bare `--tag` because the Cloud Run image is
+# built from deploy/Dockerfile.cloudrun, not the repository-root Dockerfile: Cloud Run
+# routes a single port, so that image runs the MCP server and the API together behind
+# one entrypoint (see deploy/cloud_run_start.py).
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "--file=deploy/Dockerfile.cloudrun"
+      - "--tag=gcr.io/$PROJECT_ID/${_SERVICE}:$BUILD_ID"
+      - "--tag=gcr.io/$PROJECT_ID/${_SERVICE}:latest"
+      - "."
+
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "push"
+      - "--all-tags"
+      - "gcr.io/$PROJECT_ID/${_SERVICE}"
+
+substitutions:
+  _SERVICE: "mindtraqk"
+
+images:
+  - "gcr.io/$PROJECT_ID/${_SERVICE}:latest"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: "E2_HIGHCPU_8"
+
+# The pip install of ~100 pinned packages dominates; the default 10m is not enough.
+timeout: "1800s"

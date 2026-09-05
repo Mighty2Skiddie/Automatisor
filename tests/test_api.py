@@ -151,6 +151,119 @@ def test_supplied_request_id_is_echoed(client: TestClient) -> None:
 
 
 # --------------------------------------------------------------------------
+# The brief's API test, performed as written
+# --------------------------------------------------------------------------
+
+
+def test_briefs_api_test_equity_analyst_logistics(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's stated API check: POST equity_analyst x logistics and consume it.
+
+    The module-level stub answers every request with the same pe_analyst /
+    manufacturing SAMPLE, so asserting against it would only re-read a constant. This
+    stub records the arguments it was actually called with, echoes the persona and
+    sector back and derives the lens from the real registry, so the assertions below
+    test the HTTP contract — that the caller's question reaches the agent, and that
+    what it asked for comes back as structured, machine-consumable fields — rather
+    than a fixture's own shape.
+
+    The figures below are the real logistics rows so the example answer a reviewer
+    reads here is consistent with the committed database rather than invented.
+    """
+    from app.agent.personas import get_persona
+
+    received: dict[str, Any] = {}
+
+    async def echoing_run_agent(**kwargs: Any) -> AgentResponse:
+        received.update(kwargs)
+        persona = get_persona(kwargs["persona"])
+        return AgentResponse(
+            answer=(
+                "Union Pacific runs the widest operating margin of these carriers at "
+                "41.0% and the highest return on equity at 39.7%. Old Dominion is the "
+                "nearest on margin at 28.8% but earns less on its equity base."
+            ),
+            key_points=["Union Pacific leads on both margin and return on equity"],
+            companies_referenced=["ODFL", "UNP"],
+            citations=[
+                Citation(
+                    ticker="ODFL",
+                    company_name="Old Dominion Freight Line, Inc.",
+                    fields_used=["operating_margin", "return_on_equity"],
+                    values={"operating_margin": 0.28835, "return_on_equity": 0.24818},
+                    source="yfinance/yahoo",
+                    as_of="2026-09-04",
+                ),
+                Citation(
+                    ticker="UNP",
+                    company_name="Union Pacific Corporation",
+                    fields_used=["operating_margin", "return_on_equity"],
+                    values={"operating_margin": 0.40982, "return_on_equity": 0.39696},
+                    source="yfinance/yahoo",
+                    as_of="2026-09-04",
+                ),
+            ],
+            caveats=["Analysis of the dataset, not personalised investment advice."],
+            persona=persona.key,
+            persona_lens=persona.lens,
+            sector=kwargs["sector"],
+            confidence="high",
+            confidence_reason="10 logistics companies retrieved; both fields present.",
+            data_as_of="2026-09-04",
+            tools_called=["query_companies", "compare_companies"],
+            llm_provider="google",
+            latency_ms=5120,
+        )
+
+    monkeypatch.setattr(api_main, "run_agent", echoing_run_agent)
+
+    question = "Which of these carriers earns its multiple on margin and returns?"
+    response = client.post(
+        "/v1/query",
+        json={
+            "query": question,
+            "persona": "equity_analyst",
+            "sector": "logistics",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    # The question, the lens and the sector reach the agent unaltered.
+    assert received["query"] == question
+    assert received["persona"] == "equity_analyst"
+    assert received["sector"] == "logistics"
+    assert received["interface"] == "api"
+
+    # The answer the request asked for, from the lens and sector it asked for.
+    assert body["persona"] == "equity_analyst"
+    assert body["sector"] == "logistics"
+    assert isinstance(body["answer"], str)
+    assert len(body["answer"]) > 40, "an answer this short is not a usable analysis"
+
+    # Structure, not a text blob: a consumer can act on these without parsing prose.
+    assert body["companies_referenced"] == ["ODFL", "UNP"]
+    assert body["citations"], "no citations means the answer cannot be checked"
+    for citation in body["citations"]:
+        assert citation["ticker"] in body["companies_referenced"]
+        assert citation["source"]
+        assert citation["as_of"]
+        assert citation["fields_used"]
+        # The figures themselves, not just the names of the fields they came from.
+        assert set(citation["values"]) == set(citation["fields_used"])
+        assert all(value is not None for value in citation["values"].values())
+
+    assert body["confidence"] in {"high", "medium", "low"}
+    assert len(body["confidence_reason"]) > 10, "a confidence with no reason is a guess"
+    assert body["tools_called"], "an answer with no tool call is not grounded"
+    assert body["data_as_of"]
+    # Named by the brief. Null is a supported value — tracing is optional — but the
+    # field itself must always be there for a consumer to correlate the call.
+    assert "trace_id" in body
+
+
+# --------------------------------------------------------------------------
 # Validation — 422 must name the valid values
 # --------------------------------------------------------------------------
 
