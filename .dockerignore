@@ -1,0 +1,27 @@
+# Never let a real key reach an image layer. .env is mounted at run time via
+# env_file, never copied in.
+.env
+.env.local
+
+.git
+.gitignore
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+
+node_modules/
+.next/
+
+# Build/run artefacts that would bloat the context and invalidate layer caching.
+*.log
+smoke_out.txt
+eval_run*.log
+api_out.log
+evals/results/results.json
+
+docs/
+tests/

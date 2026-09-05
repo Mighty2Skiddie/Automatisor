@@ -1,0 +1,33 @@
+# Secrets — never commit
+.env
+.env.local
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+web/.env*.local
+
+# Eval run output — the committed report lives at evals/results/report.md
+evals/results/*.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local run artefacts from development
+*.log
+q1.json
+smoke_out.txt

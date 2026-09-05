@@ -1,0 +1,77 @@
+# One command to run the whole system:
+#
+#     copy .env.example .env     # add GOOGLE_API_KEY
+#     docker compose up
+#
+#   API   http://localhost:8000/docs
+#   UI    http://localhost:8501
+#   MCP   http://localhost:8765/mcp
+#
+# Three services from one image. `web` (Next.js) is deliberately absent — the
+# Streamlit UI is the human interface this build ships, and the brief names
+# "Streamlit or equivalent".
+
+services:
+  mcp:
+    build: .
+    image: sector-analyst-agent
+    command: ["python", "-m", "app.mcp_server.server"]
+    # 0.0.0.0 inside the container, not the loopback used for local development:
+    # binding to 127.0.0.1 here would make the server unreachable from `api`, which
+    # is the single most common way a working local build fails under compose.
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8765"
+    ports:
+      - "8765:8765"
+    healthcheck:
+      # A TCP connect, not an HTTP request: a bare GET on the MCP endpoint answers
+      # 406 (it wants an SSE Accept header), so an HTTP probe would need exception
+      # handling that does not fit cleanly on one line. Accepting the connection is
+      # a sufficient liveness signal and needs no extra tooling in the image.
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8765), 3).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  api:
+    build: .
+    image: sector-analyst-agent
+    command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    env_file: .env
+    environment:
+      # Reaches the database only over MCP, by service name on the compose network.
+      MCP_SERVER_URL: http://mcp:8765/mcp
+      API_HOST: 0.0.0.0
+      CORS_ORIGINS: http://localhost:3000,http://localhost:8501
+    ports:
+      - "8000:8000"
+    depends_on:
+      mcp:
+        condition: service_healthy
+
+  ui:
+    build: .
+    image: sector-analyst-agent
+    command:
+      - streamlit
+      - run
+      - app/ui_streamlit/app.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+      - --server.headless=true
+      - --browser.gatherUsageStats=false
+    env_file: .env
+    environment:
+      MCP_SERVER_URL: http://mcp:8765/mcp
+    ports:
+      - "8501:8501"
+    depends_on:
+      mcp:
+        condition: service_healthy
+
+# No volume is mounted over app/data. The committed financials.db ships inside the
+# image, so a clean clone runs with nothing to scrape. Mounting a named volume there
+# would shadow that file on a second `up` and hand the reviewer an empty database —
+# to rebuild the data instead, run `python scripts/build_db.py` and rebuild the image.

@@ -1,0 +1,50 @@
+[project]
+name = "sector-analyst-agent"
+version = "1.0.0"
+description = "One configurable agent, three analyst personas, four sectors, behind an MCP boundary."
+requires-python = ">=3.12"
+
+[tool.ruff]
+# Pinned explicitly rather than inherited: "ruff clean" is a phase gate here and a CI
+# check in Phase 8, so it must mean the same thing on every machine and every ruff
+# release. Left to defaults, a ruff upgrade silently changes what the gate enforces.
+line-length = 100
+target-version = "py312"
+src = ["."]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # import sorting
+    "UP",     # pyupgrade — keep the 3.12 idioms current
+    "B",      # bugbear
+    "ISC",    # implicit string concatenation (catches a missing comma in a tuple)
+    "SIM",    # simplify
+    "RUF",    # ruff-specific
+    "BLE",    # no blind `except Exception`
+    "T20",    # no stray print() in library code
+    "PTH",    # prefer pathlib
+    "RET",    # return-statement hygiene
+    "ARG",    # unused arguments
+]
+ignore = [
+    "E501",   # line length is handled by the formatter, not the linter
+    "B008",   # FastAPI's Depends() in defaults is the framework idiom
+]
+
+[tool.ruff.lint.per-file-ignores]
+# These are console tools; printing is their interface.
+"scripts/*.py" = ["T20"]
+"evals/*.py" = ["T20"]
+# Streamlit apps are scripts by design.
+"app/ui_streamlit/*.py" = ["T20"]
+# Pytest fixtures requested purely for their side effects read as unused arguments,
+# and stub doubles legitimately accept arguments they ignore.
+"tests/*.py" = ["ARG001", "ARG002", "ARG005"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]
